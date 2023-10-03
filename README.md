@@ -5,7 +5,8 @@ Techs Revive System is a template that contains a functional revive system that 
 The revive system contains:
 - Interact or Walk on to revive
 - Fast bleed out
-- Instant Respawn button (similar to what Starwatch)
+- Instant Respawn button (similar to what Starwatch has)
+- Hide downed teammates from enemies (similar to what Starwatch has)
 - Crawling or knocked down when downed
 - Downed timer or no timer
 - Choice on which Teams will be affected by the system
