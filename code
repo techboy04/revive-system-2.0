@@ -1,0 +1,589 @@
+settings
+{
+	main
+	{
+		Description: "This is a revive system that can be used separately or as part of your mode!"
+		Mode Name: "Techs Revive System"
+	}
+
+	lobby
+	{
+		Max Team 1 Players: 5
+		Max Team 2 Players: 5
+		Return To Lobby: Never
+		Team Balancing: After A Mirror Match
+	}
+
+	modes
+	{
+		Assault
+
+		Control
+
+		Escort
+
+		Flashpoint
+
+		Hybrid
+
+		Push
+
+		Team Deathmatch
+
+		General
+		{
+			Limit Roles: 1 Tank 2 Offense 2 Support
+		}
+	}
+
+	workshop
+	{
+		Allow downed players to spectate teammates: Off
+		Max Downed Time: 10.000
+		Revive Time: 2.000
+	}
+}
+
+variables
+{
+	global:
+		0: reviveRadius
+		1: requireInteract
+		2: downedTimer
+		3: revivedTimer
+		4: revivableTeam
+		5: canSpeedDowned
+		6: payloadLocation
+		7: enableNotifers
+		8: allowEmotes
+		9: enableCrawling
+		10: enableRespawnWhileDowned
+		11: hideDownedFromEnemies
+		12: respawnPlayersTeamIfTeamIsDowned
+		13: downedEnabledDuringPreMatch
+		14: canDamageDownedPlayers
+		15: enableSpectatingWhenDowned
+
+	player:
+		0: isDown
+		1: beingRevived
+		2: revivee
+		3: lastLocation
+		4: downExpireTimer
+		5: reviveTimer
+		6: killer
+		7: spectatingIndex
+}
+
+rule("Revive System - Global")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+		Global.revivedTimer = Workshop Setting Real(Custom String("Revive Settings"), Custom String("Revive Time"), 2, 0.100, 100, 0);
+		Global.downedTimer = Workshop Setting Real(Custom String("Downed Settings"), Custom String("Max Downed Time"), 20, 0.100, 100, 0);
+		Global.reviveRadius = Workshop Setting Integer(Custom String("Revive Settings"), Custom String("Revive Radius"), 10, 0, 100, 0);
+		Global.requireInteract = Workshop Setting Toggle(Custom String("Revive Settings"), Custom String("Require Interact to Revive"),
+			True, 0);
+		Global.revivableTeam = Array(All Teams, Team 1, Team 2)[Workshop Setting Combo(Custom String("Downed Settings"), Custom String(
+			"Team affected by the Revive System"), 0, Array(Custom String("All Teams"), Custom String("Only Team 1"), Custom String(
+			"Only Team 2")), 0)];
+		Global.canSpeedDowned = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String("Enable fast death button"), True,
+			0);
+		Global.enableNotifers = Workshop Setting Toggle(Custom String("Revive Settings"), Custom String(
+			"Enable Downed, Revived by, and Revive Expire notifications"), True, 0);
+		Global.allowEmotes = Workshop Setting Toggle(Custom String("Revive Settings"), Custom String(
+			"Enable Downed and Revived emotes (Need Help and Thanks)"), True, 0);
+		Global.enableCrawling = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String("Enable the ability to Crawl"),
+			True, 0);
+		Global.enableRespawnWhileDowned = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String(
+			"Enable Respawn while downed (Can activate when timer is down by half)"), True, 0);
+		Global.hideDownedFromEnemies = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String(
+			"Hides player from enemies (similar to Starwatch)"), False, 0);
+		Global.respawnPlayersTeamIfTeamIsDowned = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String(
+			"Respawn Players team if their entire team is downed/dead"), True, 0);
+		Global.downedEnabledDuringPreMatch = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String(
+			"Enable Revive System when no game is active (Waiting for Players/Pre Match)"), True, 0);
+		Global.canDamageDownedPlayers = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String(
+			"Downed Players can be damaged"), True, 0);
+		Global.enableSpectatingWhenDowned = Workshop Setting Toggle(Custom String("Downed Settings"), Custom String(
+			"Allow downed players to spectate teammates"), True, 0);
+		If(Is True For Any(Array(Game Mode(Deathmatch), Game Mode(Team Deathmatch)), Current Array Element == Current Game Mode));
+			Disable Built-In Game Mode Scoring;
+		End;
+	}
+}
+
+rule("Revive System - Init Player")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+	}
+
+	actions
+	{
+		Event Player.isDown = False;
+		disabled Create HUD Text(Event Player, Event Player.lastLocation, Null, Null, Left, 0, Color(White), Color(White), Color(White),
+			Visible To and String, Default Visibility);
+		Create Effect(Is True For Any(All Players(Team Of(Event Player)),
+			Current Array Element.revivee == Event Player && Event Player.beingRevived) ? All Players(All Teams) : Null, Energy Sound,
+			Color(White), Event Player, 200, Visible To Position and Radius);
+		Create Effect(Is True For Any(All Players(Team Of(Event Player)),
+			Current Array Element.revivee == Event Player && Event Player.beingRevived) ? All Players(All Teams) : Null, Sparkles, Team Of(
+			Event Player), Event Player, Global.reviveRadius, Visible To Position and Radius);
+		Create In-World Text(Event Player.isDown ? Remove From Array(All Players(Team Of(Event Player)), Event Player) : Null,
+			Is True For Any(All Players(Team Of(Event Player)), Current Array Element.revivee == Event Player && Event Player.beingRevived)
+			? Custom String("Reviving - {0}%", Round To Integer(Event Player.reviveTimer / Global.revivedTimer * 100, To Nearest)) : (
+			Event Player.downExpireTimer != 0 ? Custom String("Revive - {0}", Round To Integer(Event Player.downExpireTimer, Up))
+			: Custom String("Revive")), Event Player, 1, Do Not Clip, Visible To Position String and Color, Is True For Any(All Players(
+			Team Of(Event Player)), Current Array Element.revivee == Event Player && Event Player.beingRevived) ? Color(Yellow) : Color(
+			Blue), Default Visibility);
+		Create Icon(Event Player.isDown ? Remove From Array(All Players(Team Of(Event Player)), Event Player) : Null, Event Player, Halo,
+			Visible To and Position, Color(Yellow), True);
+		Create Effect(Event Player.isDown ? All Players(Team Of(Event Player)) : Null, Ring, Color(White), Event Player,
+			Global.reviveRadius, Visible To Position and Radius);
+		Event Player.revivee = Null;
+		Create Progress Bar HUD Text(Event Player.isDown && Event Player.downExpireTimer != 0 ? Event Player : Null,
+			Event Player.downExpireTimer / Global.downedTimer * 100, Custom String("DOWNED"), Top, 0, Color(Red), Color(Red),
+			Visible To Values and Color, Default Visibility);
+		Create Progress Bar HUD Text(Event Player.beingRevived ? Event Player : Null, Event Player.reviveTimer / Global.revivedTimer * 100,
+			Custom String("BEING REVIVED"), Top, 0, Color(Yellow), Color(Yellow), Visible To Values and Color, Default Visibility);
+		Create Progress Bar HUD Text(Event Player.revivee.beingRevived ? Event Player : Null,
+			Event Player.revivee.reviveTimer / Global.revivedTimer * 100, Custom String("REVIVING {0}", Event Player.revivee), Top, 0,
+			Color(Yellow), Color(Yellow), Visible To Values and Color, Default Visibility);
+		Event Player.downExpireTimer = Global.downedTimer;
+		Event Player.beingRevived = False;
+		Event Player.lastLocation = False;
+		Event Player.reviveTimer = False;
+		Create HUD Text(Count Of(Filtered Array(All Players(Team Of(Event Player)), Distance Between(Current Array Element, Event Player)
+			<= 5 && Current Array Element.isDown)) >= 1 ? (Event Player.isDown ? Null : Event Player) : Null, Custom String(
+			"Press {0} to revive {1}{2}", Input Binding String(Button(Interact)), Hero Icon String(Hero Of(First Of(Sorted Array(
+			Filtered Array(All Players(Team Of(Event Player)), Distance Between(Event Player, Current Array Element)
+			<= 5 && Current Array Element.isDown), Distance Between(Event Player, Current Array Element))))), First Of(Sorted Array(
+			Filtered Array(All Players(Team Of(Event Player)), Distance Between(Event Player, Current Array Element)
+			<= 5 && Current Array Element.isDown), Distance Between(Event Player, Current Array Element)))), Null, Null, Top, 22, Color(
+			Orange), Color(White), Color(White), Visible To Sort Order String and Color, Default Visibility);
+		Create HUD Text(Event Player.isDown && Is Alive(Event Player) && Global.enableSpectatingWhenDowned ? Event Player : Null,
+			Custom String("{1}\r\n{0}", Custom String("{0} Previous - {2} - Next {1}", Input Binding String(Button(Secondary Fire)),
+			Input Binding String(Button(Primary Fire)), Index Of Array Value(Sorted Array(All Players(Team Of(Event Player)),
+			Event Player == Current Array Element ? 100 : 0), Event Player) == Event Player.spectatingIndex ? Custom String("Yourself")
+			: Sorted Array(All Players(Team Of(Event Player)), Event Player == Current Array Element ? 100 : 0)
+			[Event Player.spectatingIndex]), Custom String("Spectating")), Null, Null, Top, 0, Color(White), Color(White), Color(White),
+			Visible To and String, Default Visibility);
+		Set Respawn Max Time(Event Player, 10);
+		Create HUD Text(Event Player.isDown && Global.canSpeedDowned ? Event Player : Null, Custom String("Hold {0} to die quicker",
+			Input Binding String(Button(Melee))), Null, Null, Top, 1, Color(Gray), Color(White), Color(White), Visible To and String,
+			Default Visibility);
+		Create HUD Text(
+			Event Player.isDown && Global.enableRespawnWhileDowned && Event Player.downExpireTimer < Global.downedTimer / 2 ? Event Player : Null,
+			Custom String("Press {0} to respawn", Input Binding String(Button(Reload))), Null, Null, Top, 2, Color(Yellow), Color(White),
+			Color(White), Visible To and String, Default Visibility);
+	}
+}
+
+rule("Revive System - Is Dead")
+{
+	event
+	{
+		Player Died;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+		(Global.downedEnabledDuringPreMatch ? True : Is Game In Progress) == True;
+	}
+
+	actions
+	{
+		If(Event Player.isDown == False);
+			Event Player.isDown = True;
+			Event Player.killer = Attacker;
+			Event Player.revivee.reviveTimer = 0;
+			Event Player.revivee.beingRevived = False;
+			Resurrect(Event Player);
+			Event Player.revivee = Null;
+			If(Is On Objective(Event Player) || Event Was Environment);
+				Teleport(Event Player, Event Player.lastLocation);
+			End;
+			Set Invisible(Global.hideDownedFromEnemies ? Event Player : Null, Enemies);
+			Set Status(Global.enableCrawling ? Null : Event Player, Null, Knocked Down, 9999);
+			Start Holding Button(Global.enableCrawling ? Event Player : Null, Button(Crouch));
+			Disallow Button(Event Player, Button(Primary Fire));
+			Disallow Button(Event Player, Button(Secondary Fire));
+			Wait(0.250, Ignore Condition);
+			Set Status(Event Player, Null, Hacked, 9999);
+			Communicate(Global.allowEmotes ? Event Player : Null, Need Help);
+			Start Camera(Event Player, Ray Cast Hit Position(All Players(Team Of(Event Player))[Event Player.spectatingIndex], Eye Position(
+				All Players(Team Of(Event Player))[Event Player.spectatingIndex]) + World Vector Of(Vector(1 * Min(-2.500 / 2.500, -0.750), 0,
+				0), All Players(Team Of(Event Player))[Event Player.spectatingIndex], Rotation) + Facing Direction Of(All Players(Team Of(
+				Event Player))[Event Player.spectatingIndex]) * -2.500, All Players(All Teams), All Players(Team Of(Event Player))
+				[Event Player.spectatingIndex], False), Ray Cast Hit Position(Eye Position(All Players(Team Of(Event Player))
+				[Event Player.spectatingIndex]), Eye Position(All Players(Team Of(Event Player))[Event Player.spectatingIndex])
+				+ Facing Direction Of(All Players(Team Of(Event Player))[Event Player.spectatingIndex]) * 200, All Players(Team Of(
+				Event Player)), All Players(Team Of(Event Player))[Event Player.spectatingIndex], False), 60);
+			Set Status(Global.canDamageDownedPlayers ? Null : Event Player, Null, Phased Out, 9999);
+			Wait(0.125, Ignore Condition);
+			Event Player.spectatingIndex = Index Of Array Value(Sorted Array(All Players(Team Of(Event Player)),
+				Event Player == Current Array Element ? 100 : 0), Event Player);
+			Big Message(Global.enableNotifers ? Remove From Array(All Players(Team Of(Event Player)), Event Player) : Null, Custom String(
+				"{0} {1} is down!", Hero Icon String(Hero Of(Event Player)), Event Player));
+		Else If(Event Player.isDown == True);
+			Clear Status(Event Player, Knocked Down);
+			Clear Status(Event Player, Phased Out);
+			Event Player.isDown = False;
+			Event Player.downExpireTimer = Global.downedTimer;
+			Stop Camera(Event Player);
+			Communicate(Global.allowEmotes ? Event Player : Null, Sorry);
+			Clear Status(Event Player, Hacked);
+			Big Message(Global.enableNotifers ? Remove From Array(All Players(Team Of(Event Player)), Event Player) : Null, Custom String(
+				"{0} {1}'s revive has expired!", Hero Icon String(Hero Of(Event Player)), Event Player));
+			Stop Holding Button(Global.enableCrawling ? Event Player : Null, Button(Crouch));
+			Allow Button(Event Player, Button(Primary Fire));
+			Allow Button(Event Player, Button(Secondary Fire));
+			Set Invisible(Global.hideDownedFromEnemies ? Event Player : Null, None);
+			If(Current Game Mode == Game Mode(Team Deathmatch));
+				Modify Team Score(Opposite Team Of(Team Of(Event Player)), 1);
+				Modify Player Score(Attacker, 1);
+	}
+}
+
+rule("Revive System - Revive Downed Player")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Event Player.isDown == False;
+		Distance Between(Event Player, First Of(Sorted Array(Filtered Array(All Players(Team Of(Event Player)),
+			Current Array Element.isDown), Distance Between(Event Player, Current Array Element)))) <= Global.reviveRadius;
+		(Global.requireInteract ? Is Button Held(Event Player, Button(Interact)) : True) == True;
+		Event Player.beingRevived == False;
+		Is Dead(Event Player) == False;
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+	}
+
+	actions
+	{
+		Event Player.revivee = First Of(Sorted Array(Filtered Array(All Players(Team Of(Event Player)), Current Array Element.isDown),
+			Distance Between(Event Player, Current Array Element)));
+		Event Player.revivee.beingRevived = True;
+		Event Player.revivee.reviveTimer = 0;
+		While(Event Player.revivee.reviveTimer <= Global.revivedTimer);
+			Wait(0.200, Abort When False);
+			Event Player.revivee.reviveTimer += 0.200;
+		End;
+		Big Message(Global.enableNotifers ? Remove From Array(All Players(Team Of(Event Player.revivee)), Event Player.revivee) : Null,
+			Custom String("{0} was revived by {1}", Custom String("{0}{1}", Hero Icon String(Hero Of(Event Player.revivee)),
+			Event Player.revivee), Custom String("{0}{1}", Hero Icon String(Hero Of(Event Player)), Event Player)));
+		Event Player.revivee.isDown = False;
+		Clear Status(Event Player.revivee, Hacked);
+		Clear Status(Event Player.revivee, Knocked Down);
+		Event Player.revivee.downExpireTimer = Global.downedTimer;
+		Clear Status(Event Player.revivee, Phased Out);
+		Play Effect(All Players(All Teams), Good Explosion, Color(White), Event Player.revivee, Global.reviveRadius);
+		Stop Camera(Event Player.revivee);
+		Play Effect(All Players(All Teams), Ring Explosion, Color(White), Event Player.revivee, Global.reviveRadius);
+		Event Player.revivee.beingRevived = False;
+		Set Status(Event Player.revivee, Null, Invincible, 5);
+		Stop Holding Button(Global.enableCrawling ? Event Player.revivee : Null, Button(Crouch));
+		Allow Button(Event Player.revivee, Button(Primary Fire));
+		Allow Button(Event Player.revivee, Button(Secondary Fire));
+		Heal(Event Player.revivee, Event Player, Max Health(Event Player));
+		Set Invisible(Global.hideDownedFromEnemies ? Event Player.revivee : Null, Enemies);
+		Communicate(Global.allowEmotes ? Event Player.revivee : Null, Thanks);
+		Wait(0.250, Ignore Condition);
+		Event Player.revivee = Null;
+	}
+}
+
+rule("Revive System - Respawn if able to")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Global.enableRespawnWhileDowned == True;
+		Event Player.isDown == True;
+		Event Player.beingRevived == False;
+		Is Button Held(Event Player, Button(Reload)) == True;
+		Global.downedTimer / 2 > Event Player.downExpireTimer;
+	}
+
+	actions
+	{
+		Respawn(Event Player);
+		Event Player.revivee = Null;
+		Event Player.isDown = False;
+		Event Player.beingRevived = False;
+		Clear Status(Event Player, Hacked);
+		Stop Camera(Event Player);
+		Clear Status(Event Player, Phased Out);
+		Stop Holding Button(Global.enableCrawling ? Event Player : Null, Button(Crouch));
+		Allow Button(Event Player, Button(Primary Fire));
+		Allow Button(Event Player, Button(Secondary Fire));
+		Set Invisible(Global.hideDownedFromEnemies ? Event Player : Null, None);
+		Event Player.downExpireTimer = Global.downedTimer;
+	}
+}
+
+rule("Revive System - On Ground Location")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is On Ground(Event Player) == True;
+		Is On Objective(Event Player) == False;
+		Is On Wall(Event Player) == False;
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+		Is In Air(Event Player) == False;
+	}
+
+	actions
+	{
+		Wait(0.500, Abort When False);
+		Event Player.lastLocation = Position Of(Event Player);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Revive System - Everyone on a Team is Downed")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is True For All(All Players(Team Of(Event Player)), Current Array Element.isDown || Is Dead(Current Array Element)) == True;
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+		Global.respawnPlayersTeamIfTeamIsDowned == True;
+	}
+
+	actions
+	{
+		Kill(Event Player, Event Player.killer);
+		Wait(0.250, Ignore Condition);
+		Respawn(Event Player);
+		Event Player.revivee = Null;
+		Event Player.isDown = False;
+		Event Player.beingRevived = False;
+		Clear Status(Event Player, Hacked);
+		Stop Camera(Event Player);
+		Clear Status(Event Player, Phased Out);
+		Stop Holding Button(Global.enableCrawling ? Event Player : Null, Button(Crouch));
+		Allow Button(Event Player, Button(Primary Fire));
+		Allow Button(Event Player, Button(Secondary Fire));
+		Set Invisible(Global.hideDownedFromEnemies ? Event Player : Null, None);
+	}
+}
+
+rule("Revive System - Revive Downed Player Cancel")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Event Player.isDown == False;
+		(Distance Between(Event Player, First Of(Sorted Array(Filtered Array(All Players(Team Of(Event Player)),
+			Current Array Element.isDown), Distance Between(Event Player, Current Array Element)))) > Global.reviveRadius || (
+			Global.requireInteract ? !Is Button Held(Event Player, Button(Interact)) : False)) == True;
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+	}
+
+	actions
+	{
+		Event Player.revivee.beingRevived = False;
+		Event Player.revivee.reviveTimer = 0;
+		Event Player.revivee = Null;
+	}
+}
+
+rule("Revive System - Downed Timer")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Event Player.isDown == True;
+		Event Player.beingRevived == False;
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+	}
+
+	actions
+	{
+		While(Event Player.downExpireTimer > 0);
+			Wait(0.200, Abort When False);
+			Event Player.downExpireTimer -= Global.canSpeedDowned && Is Button Held(Event Player, Button(Melee))
+				? Global.downedTimer / 5 : 0.200;
+		End;
+		Kill(Event Player, Event Player.killer);
+	}
+}
+
+rule("Revive System - Objective Complete")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is In Setup == True;
+		(Global.revivableTeam == All Teams ? True : Team Of(Event Player) == Global.revivableTeam) == True;
+	}
+
+	actions
+	{
+		Event Player.isDown = False;
+		Clear Status(Event Player, Knocked Down);
+		Event Player.downExpireTimer = Global.downedTimer;
+		Clear Status(Event Player, Invincible);
+		Play Effect(All Players(All Teams), Good Explosion, Color(White), Event Player, Global.reviveRadius);
+		Stop Camera(Event Player);
+		Play Effect(All Players(All Teams), Ring Explosion, Color(White), Event Player, Global.reviveRadius);
+		Event Player.beingRevived = False;
+		Set Status(Event Player, Null, Invincible, 5);
+		Event Player.revivee = Null;
+		Clear Status(Event Player, Hacked);
+		Stop Holding Button(Global.enableCrawling ? Event Player : Null, Button(Crouch));
+		Allow Button(Event Player, Button(Primary Fire));
+		Allow Button(Event Player, Button(Secondary Fire));
+		Set Invisible(Global.hideDownedFromEnemies ? Event Player : Null, None);
+	}
+}
+
+rule("Revive System - Spectating - Next")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Button Held(Event Player, Button(Primary Fire)) == True;
+		Event Player.isDown == True;
+		Global.enableSpectatingWhenDowned == True;
+	}
+
+	actions
+	{
+		Event Player.spectatingIndex += 1;
+		If(Event Player.spectatingIndex >= Count Of(All Players(Team Of(Event Player))));
+			Event Player.spectatingIndex = 0;
+		End;
+	}
+}
+
+rule("Revive System - Spectating - Prev")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Button Held(Event Player, Button(Secondary Fire)) == True;
+		Event Player.isDown == True;
+		Global.enableSpectatingWhenDowned == True;
+	}
+
+	actions
+	{
+		Event Player.spectatingIndex -= 1;
+		If(Event Player.spectatingIndex < 0);
+			Event Player.spectatingIndex = Count Of(All Players(Team Of(Event Player))) - 1;
+		End;
+	}
+}
+
+rule("Revive System - Push Players Away from Payload if Downed")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Distance Between(Event Player, Global.payloadLocation) <= 10;
+		Event Player.isDown == True;
+		Is True For Any(Array(Game Mode(Escort), Game Mode(Hybrid), Game Mode(Push)), Current Game Mode == Current Array Element) == True;
+	}
+
+	actions
+	{
+		Wait(0.250, Abort When False);
+		Apply Impulse(Event Player, Direction Towards(Global.payloadLocation, Event Player), 10, To World, Cancel Contrary Motion);
+		Loop If Condition Is True;
+	}
+}
+
+rule("Revive System - Loop Payload Locatiom (blame Blizz for this one)")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+		Wait(0.250, Ignore Condition);
+		Global.payloadLocation = Payload Position;
+		Loop;
+	}
+}
